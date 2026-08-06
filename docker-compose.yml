@@ -1,0 +1,61 @@
+# Local, production-like test rig: real Postgres + real Redis + the backend
+# built exactly as it will be deployed. Run `docker compose up --build` and
+# hit http://localhost:8000/docs — this exercises the *actual* production
+# code paths (asyncpg, real Redis Pub/Sub), unlike the zero-infra SQLite +
+# fakeredis setup used for day-to-day local development.
+#
+# The frontend is not containerized here — run it separately with
+# `cd frontend && npm run dev` (see frontend/.env: point VITE_API_URL /
+# VITE_WS_URL at http://localhost:8000 / ws://localhost:8000).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay
+    ports:
+      - "5432:5432"
+    volumes:
+      - relay_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://relay:relay@postgres:5432/relay
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: local-docker-test-secret
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+      CLIENT_URL: http://localhost:5173
+      UPLOAD_DIR: /app/uploads
+      MAX_UPLOAD_MB: "15"
+    volumes:
+      - relay_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  relay_postgres_data:
+  relay_uploads:

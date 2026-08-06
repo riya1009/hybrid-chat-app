@@ -1,0 +1,28 @@
+.DS_Store
+.vscode/
+.idea/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+backend/venv/
+backend/uploads/
+
+# Local DBs
+*.db
+*.sqlite
+*.sqlite3
+
+# Claude local
+.claude/settings.local.json
+
+# OS
+Thumbs.db

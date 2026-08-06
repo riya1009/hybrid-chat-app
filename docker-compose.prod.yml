@@ -1,0 +1,76 @@
+# Production stack for a self-hosted VM (see DEPLOY_ORACLE.md): Caddy terminates
+# TLS and serves the built frontend directly, proxying /api, /ws, /uploads, and
+# /docs to the backend. Postgres/Redis are NOT published to the host here (only
+# reachable on the internal Docker network) since nothing outside this stack
+# needs to reach them directly.
+#
+# Usage:
+#   cd frontend && npm install && npm run build && cd ..
+#   DOMAIN=your-domain.duckdns.org docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay
+    volumes:
+      - relay_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://relay:relay@postgres:5432/relay
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?set a long random JWT_SECRET in your .env}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+      CLIENT_URL: https://${DOMAIN}
+      UPLOAD_DIR: /app/uploads
+      MAX_UPLOAD_MB: "15"
+    volumes:
+      - relay_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to your domain/subdomain, e.g. relay-yourname.duckdns.org}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./frontend/dist:/srv/frontend:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  relay_postgres_data:
+  relay_uploads:
+  caddy_data:
+  caddy_config:
